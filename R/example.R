@@ -1,3 +1,4 @@
+library(tidyverse)
 source("quinn.R")
 source("utils.R")
 data <- read.csv("../data/hurricane.csv")
@@ -27,7 +28,9 @@ tau <- seq(0.05,0.95,0.05)
 X.grid <- seq(0,1,length.out = 101)
 z.grid <- seq(0,1,length.out = 101)
 
-q.pred <- quinn_pred(X=X.grid,z=z.grid,param=post,tau=tau)
+tic()
+q.pred <- quinn_pred(X=X.grid,param=post,tau=tau)
+toc()
 
 q.pred <- q.pred*(max_y-min_y)+min_y
 
@@ -35,7 +38,7 @@ qplot.df = as.data.frame(cbind(X.grid*(max_X-min_X)+min_X,t(q.pred)))
 
 colnames(qplot.df) = c("X", paste("tau",1:length(tau),sep="."))
 
-qplot.df = gather(plot.df,tau,y,tau.1:tau.19,factor_key=TRUE)
+qplot.df = gather(qplot.df,tau,y,tau.1:tau.19,factor_key=TRUE)
 
 ggplot()+geom_point(data = data, aes(Year,WmaxST))+labs(x = "Year", y="WmaxST")+
   geom_line(data = qplot.df, aes(X,y,col = tau))+scale_color_discrete(name = expression(tau), labels = seq(0.05,0.95,0.05))

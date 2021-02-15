@@ -212,7 +212,7 @@ quinn_samp <- function(X,z,n.hidden,n.knots,iter,warmup=floor(iter/2),chain=1,th
   theta.out <- theta.out[seq(1, nrow(theta.out), by=thin),]
   lp__matrix <- lp__matrix[seq(1, nrow(lp__matrix), by=thin),]
   lp__ <- rowMeans(lp__matrix)
-  suppressWarnings(waic <- waic(lp__matirx)$estimates[3])
+  suppressWarnings(waic <- waic(lp__matrix)$estimates[3])
   
   warm <- warmup/thin
   sampler_params <- sampler_params[seq(1, nrow(sampler_params), by=thin),]
@@ -316,29 +316,35 @@ quinn_samp <- function(X,z,n.hidden,n.knots,iter,warmup=floor(iter/2),chain=1,th
   return(grad_theta)
 }
 
-
-quinn_pred <- function(X,z,param,tau)
+quinn_pred <- function(X,dz=0.01,param,tau)
 {
-  X.dim <- ncol(X)
-  if(is.null(X.dim))
+  test.X <- X
+  tau.grid <- tau
+  z.grid <- seq(0,1,dz)
+  X.shape <- dim(test.X)
+  if(is.null(X.shape))
   {
-    est_q <- do.call('cbind',lapply(seq_along(X),function(i)
-    {
-      cdf_est <- .pred.cdf(z,rep(X[i],length(z)),samp = param)
-      q_est <- approx(cdf_est,z,xout = tau)$y
-      q_est
-    }))
+    X.shape <- c(length(test.X),1)
+    test.X <- matrix(test.X,ncol=1)
   }
-  return(est_q)
+  
+  q_est <- matrix(0,nrow=length(tau.grid),ncol=X.shape[1])
+  
+  for(i in 1:X.shape[1])
+  {
+    cdf_est <- .pred.cdf(rep(test.X[i,],length(z.grid)),z.grid,param = param)
+    q_est[,i] <- approx(cdf_est,z.grid,xout = tau.grid)$y
+  }
+  return(q_est)
 }
 
 
-.pred.cdf = function(X,z,param){
+.pred.cdf = function(test.X,z.grid,param)
+{
   invisible(list2env(as.list(quinn.env),environment()))
-  X.dim <- ncol(X)
-  if(is.null(X.dim)) X.dim <- 1
-  spf <- predict(isp,newx = z)
-  cdf <- apply(do.call('rbind',(lapply(seq_len(nrow(param)),function(idx)
+  spf <- predict(isp,newx = z.grid)
+  cdf <- numeric(length(z.grid))
+  for(idx in 1:nrow(param))
   {
     theta <- param[idx,]
     W <- B <- vector("list",2)
@@ -348,8 +354,8 @@ quinn_pred <- function(X,z,param,tau)
     s <- exp(logs)
     W[[1]] <- s[1:(X.dim+1)]*B[[1]]
     W[[2]] <- s[X.dim+2]*B[[2]]
-    enn = exp(.nn(X,W,.tanh))
-    rowSums(spf*enn)/rowSums(enn)
-  }))),2,mean)
+    enn <- exp(.nn(test.X,W,.tanh))
+    cdf <- cdf + 1/nrow(param)*rowSums(spf*enn)/rowSums(enn)
+  }
   cdf
 }
