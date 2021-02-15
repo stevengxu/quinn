@@ -1,7 +1,6 @@
 library(tidyverse)
 library(plotly)
 source("quinn.R")
-source("utils.R")
 
 set.seed(1)
 n <- 500

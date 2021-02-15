@@ -1,6 +1,5 @@
 library(tidyverse)
 source("quinn.R")
-source("utils.R")
 data <- read.csv("../data/hurricane.csv")
 X <- data$Year
 y <- data$WmaxST
