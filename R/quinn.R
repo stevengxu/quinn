@@ -334,18 +334,20 @@ quinn_pred <- function(X,z,param,tau)
 
 
 .pred.cdf = function(X,z,param){
-  spf <- predict(isp,newx = y)
+  X.dim <- ncol(X)
+  if(is.null(X.dim)) X.dim <- 1
+  spf <- predict(isp,newx = z)
   cdf <- apply(do.call('rbind',(lapply(seq_len(nrow(param)),function(idx)
   {
     theta <- param[idx,]
     W <- B <- vector("list",2)
-    B[[1]] <- matrix(theta[1:((P+1)*J)],nrow=P+1,ncol=J)
-    B[[2]] <- matrix(theta[((P+1)*J+1):((P+1)*J+(J+1)*K)],nrow=J+1,ncol=K)
-    logs <- theta[((P+1)*J+(J+1)*K+1):((P+1)*J+(J+1)*K+P+2)]
+    B[[1]] <- matrix(theta[1:((X.dim+1)*n.hidden)],nrow=X.dim+1,ncol=n.hidden)
+    B[[2]] <- matrix(theta[((X.dim+1)*n.hidden+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
+    logs <- theta[((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+X.dim+2)]
     s <- exp(logs)
-    W[[1]] <- s[1:(P+1)]*B[[1]]
-    W[[2]] <- s[P+2]*B[[2]]
-    enn = exp(nn(X,W,f))
+    W[[1]] <- s[1:(X.dim+1)]*B[[1]]
+    W[[2]] <- s[X.dim+2]*B[[2]]
+    enn = exp(.nn(X,W,.tanh))
     rowSums(spf*enn)/rowSums(enn)
   }))),2,mean)
   cdf
