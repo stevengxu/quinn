@@ -28,9 +28,7 @@ tau <- seq(0.05,0.95,0.05)
 X.grid <- seq(0,1,length.out = 101)
 z.grid <- seq(0,1,length.out = 101)
 
-tic()
 q.pred <- quinn_pred(X=X.grid,param=post,tau=tau)
-toc()
 
 q.pred <- q.pred*(max_y-min_y)+min_y
 

@@ -332,7 +332,7 @@ quinn_pred <- function(X,dz=0.01,param,tau)
   
   for(i in 1:X.shape[1])
   {
-    cdf_est <- .pred.cdf(rep(test.X[i,],length(z.grid)),z.grid,param = param)
+    cdf_est <- .pred.cdf(test.X[rep(i,length(z.grid)),],z.grid,param = param)
     q_est[,i] <- approx(cdf_est,z.grid,xout = tau.grid)$y
   }
   return(q_est)
