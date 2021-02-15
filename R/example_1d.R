@@ -1,4 +1,5 @@
 library(tidyverse)
+library(ggplot2)
 source("quinn.R")
 data <- read.csv("../data/hurricane.csv")
 X <- data$Year
