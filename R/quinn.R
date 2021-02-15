@@ -334,6 +334,7 @@ quinn_pred <- function(X,z,param,tau)
 
 
 .pred.cdf = function(X,z,param){
+  invisible(list2env(as.list(quinn.env),environment()))
   X.dim <- ncol(X)
   if(is.null(X.dim)) X.dim <- 1
   spf <- predict(isp,newx = z)
