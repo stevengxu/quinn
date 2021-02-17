@@ -9,10 +9,12 @@ order interaction effects of QUINN. We applied QUINN to analyze tropical cyclone
 
 - R folder
 
-The **quinn.R** contains the main functions to fit a QUINN model. The `quinn_samp` function draws posterior samples of the weight parameters using no-U-turn sampling (NUTS); the specific implementation was largely based on the **adnuts** package [[2]](#2). The `quinn_pred`
+The **quinn.R** contains the main functions to fit a QUINN model. The `quinn_samp` function draws posterior samples of the weight parameters using no-U-turn sampling (NUTS); the specific implementation is largely based on the **adnuts** package [[2]](#2). The `quinn_pred`
 function estimates the quantile process using the posterior samples.
 
 The **utils.R** contains helper functions fot implementing the NUTS.
+
+The **ALEPlot_qt.R** can be used to estimate the quantile marginal effects of QUINN
 
 The **example_1d.R** and **example_2d.R** provide two examples, one univariate and one bivariate, of using QUINN. 
 

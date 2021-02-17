@@ -7,21 +7,22 @@ library(loo)
 library(rlang)
 source("utils.R")
 
-quinn_samp <- function(X,z,n.hidden,n.knots,iter,warmup=floor(iter/2),chain=1,thin=1,hyper.a=30,control=list(adapt_delta=0.999, max_td=6),seed=1)
+quinn_samp <- function(X,z,train.model,iter,warmup=floor(iter/2),chain=1,thin=1,hyper.a=30,control=list(adapt_delta=0.999, max_td=6),seed=1)
 {
   data.X <- X
   data.z <- z
-  X.dim <- ncol(data.X)
-  if(is.null(X.dim)) X.dim <- 1
+  n.hidden=train.model$n.hidden
+  n.knots=train.model$n.knots
+  n.var=train.model$n.var
   hyper.a <- sqrt(pi/2)/hyper.a
   isp = iSpline(seq(0,1,length.out = 101), knots = seq(0,1,length.out=n.knots)[-c(1,n.knots)], degree = 2, intercept = F)
   msp = iSpline(seq(0,1,length.out = 101), knots = seq(0,1,length.out=n.knots)[-c(1,n.knots)], degree = 2, derivs = 1, intercept = F)
-  quinn.env <<- new_environment(list(data.X=data.X,data.z=data.z,n.hidden=n.hidden,n.knots=n.knots,X.dim=X.dim,hyper.a=hyper.a,isp=isp,msp=msp))
+  quinn.env <<- new_environment(list(data.X=data.X,data.z=data.z,n.hidden=n.hidden,n.knots=n.knots,n.var=n.var,hyper.a=hyper.a,isp=isp,msp=msp))
   
   B <- vector("list",2)
-  B[[1]] <- rep(0,(X.dim+1)*n.hidden)
+  B[[1]] <- rep(0,(n.var+1)*n.hidden)
   B[[2]] <- rep(0,(n.hidden+1)*n.knots)
-  logs <- rep(0,X.dim+2)
+  logs <- rep(0,n.var+2)
   init <- c(unlist(B),logs)
   fn <- .loglik
   gr <- .loglik.grad
@@ -229,6 +230,46 @@ quinn_samp <- function(X,z,n.hidden,n.knots,iter,warmup=floor(iter/2),chain=1,th
   return(list(par=theta.out, lp__=lp__, waic=waic))
 }
 
+
+quinn_pred <- function(pred.model,newX,tau)
+{
+  n.hidden <- pred.model$n.hidden
+  n.knots <- pred.model$n.knots
+  n.var <- pred.model$n.var
+  n.z <- pred.model$n.z
+  post.samp <- pred.model$samp
+  if(is.null(n.z)) n.z <- 101
+  nsamp <- nrow(post.samp)
+  X.shape <- dim(newX)
+  if(is.null(X.shape)) dim(newX) <- X.shape <- c(length(newX),1)
+  z.grid <- seq(0,1,length.out = n.z)
+  isp <- iSpline(z.grid, knots = seq(0,1,length.out=n.knots)[-c(1,n.knots)], degree = 2, intercept = F)
+  isp <- isp[rep(1:nrow(isp),X.shape[1]),]
+  newX <- newX[rep(1:X.shape[1],each = n.z),]
+  if(X.shape[2]==1) dim(newX) <- c(length(newX),1)
+  cdf_est <- numeric(nrow(newX))
+  for(i in 1:nsamp)
+  {
+    theta <- post.samp[i,]
+    W <- B <- vector("list",2)
+    B[[1]] <- matrix(theta[1:((n.var+1)*n.hidden)],nrow=n.var+1,ncol=n.hidden)
+    B[[2]] <- matrix(theta[((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
+    logs <- theta[((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2)]
+    s <- exp(logs)
+    W[[1]] <- s[1:(n.var+1)]*B[[1]]
+    W[[2]] <- s[n.var+2]*B[[2]]
+    enn <- exp(.nn(newX,W,.tanh))
+    cdf_est <- cdf_est + 1/nsamp*rowSums(isp*enn)/rowSums(enn)
+  }
+  dim(cdf_est) <- c(n.z,X.shape[1])
+  q_est <- matrix(nrow = X.shape[1], ncol = length(tau))
+  for(i in 1:X.shape[1])
+  {
+    q_est[i,] <- approx(cdf_est[,i],z.grid,xout = tau)$y 
+  }
+  return(q_est)
+}
+
 ##Hyperbolic tanh with gradient
 .tanh = function(x, grad = FALSE){
   if(!grad) return(base::tanh(x))
@@ -254,12 +295,12 @@ quinn_samp <- function(X,z,n.hidden,n.knots,iter,warmup=floor(iter/2),chain=1,th
 {
   invisible(list2env(as.list(quinn.env),environment()))
   W <- B <- vector("list",2)
-  B[[1]] <- matrix(theta[1:((X.dim+1)*n.hidden)],nrow=X.dim+1,ncol=n.hidden)
-  B[[2]] <- matrix(theta[((X.dim+1)*n.hidden+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
-  logs <- theta[((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+X.dim+2)]
+  B[[1]] <- matrix(theta[1:((n.var+1)*n.hidden)],nrow=n.var+1,ncol=n.hidden)
+  B[[2]] <- matrix(theta[((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
+  logs <- theta[((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2)]
   s <- exp(logs)
-  W[[1]] <- s[1:(X.dim+1)]*B[[1]]
-  W[[2]] <- s[X.dim+2]*B[[2]]
+  W[[1]] <- s[1:(n.var+1)]*B[[1]]
+  W[[2]] <- s[n.var+2]*B[[2]]
   enn <- exp(.nn(data.X,W,.tanh))
   sp <- predict(msp,newx=data.z)
   loglik <- sum(log(rowSums(enn*sp)))-sum(log(rowSums(enn)))+sum(dnorm(B[[1]],log=T))+
@@ -272,12 +313,12 @@ quinn_samp <- function(X,z,n.hidden,n.knots,iter,warmup=floor(iter/2),chain=1,th
 {
   invisible(list2env(as.list(quinn.env),environment()))
   W <- B <- vector("list",2)
-  B[[1]] <- matrix(theta[1:((X.dim+1)*n.hidden)],nrow=X.dim+1,ncol=n.hidden)
-  B[[2]] <- matrix(theta[((X.dim+1)*n.hidden+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
-  logs <- theta[((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+X.dim+2)]
+  B[[1]] <- matrix(theta[1:((n.var+1)*n.hidden)],nrow=n.var+1,ncol=n.hidden)
+  B[[2]] <- matrix(theta[((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
+  logs <- theta[((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2)]
   s <- exp(logs)
-  W[[1]] <- s[1:(X.dim+1)]*B[[1]]
-  W[[2]] <- s[X.dim+2]*B[[2]]
+  W[[1]] <- s[1:(n.var+1)]*B[[1]]
+  W[[2]] <- s[n.var+2]*B[[2]]
   enn <- exp(.nn(data.X,W,.tanh))
   sp <- predict(msp,newx=data.z)
   loglik_array <- log(rowSums(enn*sp))-log(rowSums(enn))
@@ -290,13 +331,13 @@ quinn_samp <- function(X,z,n.hidden,n.knots,iter,warmup=floor(iter/2),chain=1,th
   invisible(list2env(as.list(quinn.env),environment()))
   Z <- W <- B <- hidden <- grad_B <- denom <- numer <- vector("list",2)
   TT <- vector("list",4)
-  grad_logs <- numeric(X.dim+2)
-  B[[1]] <- matrix(theta[1:((X.dim+1)*n.hidden)],nrow=X.dim+1,ncol=n.hidden)
-  B[[2]] <- matrix(theta[((X.dim+1)*n.hidden+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
-  logs <- theta[((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+X.dim+2)]
+  grad_logs <- numeric(n.var+2)
+  B[[1]] <- matrix(theta[1:((n.var+1)*n.hidden)],nrow=n.var+1,ncol=n.hidden)
+  B[[2]] <- matrix(theta[((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
+  logs <- theta[((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2)]
   s <- exp(logs)
-  W[[1]] <- s[1:(X.dim+1)]*B[[1]]
-  W[[2]] <- s[X.dim+2]*B[[2]]
+  W[[1]] <- s[1:(n.var+1)]*B[[1]]
+  W[[2]] <- s[n.var+2]*B[[2]]
   hidden[[1]] <- .fwd(data.X,W[[1]])
   hidden[[2]] <- .fwd(.tanh(hidden[[1]]),W[[2]])
   Z[[1]] <- cbind(1,data.X)
@@ -308,54 +349,10 @@ quinn_samp <- function(X,z,n.hidden,n.knots,iter,warmup=floor(iter/2),chain=1,th
   TT[[2]] <- (tcrossprod(enn,W[[2]][-1,])*.tanh(hidden[[1]],T))/rowSums(enn)
   TT[[3]] <- snn/rowSums(snn)
   TT[[4]] <- enn/rowSums(enn)
-  grad_B[[1]] <- crossprod(t(s[1:(X.dim+1)]*t(Z[[1]])),TT[[1]])-crossprod(t(s[1:(X.dim+1)]*t(Z[[1]])),TT[[2]])-B[[1]]
-  grad_B[[2]] <- crossprod(s[X.dim+2]*Z[[2]],TT[[3]])-crossprod(s[X.dim+2]*Z[[2]],TT[[4]])-B[[2]]
-  grad_logs[1:(X.dim+1)] <- diag(tcrossprod(crossprod(Z[[1]],TT[[1]]),W[[1]]))-diag(tcrossprod(crossprod(Z[[1]],TT[[2]]),W[[1]])) - 2*hyper.a^2/pi*s[1:(X.dim+1)]^2 + 1
-  grad_logs[X.dim+2] <- sum(TT[[3]]*hidden[[2]])- sum(TT[[4]]*hidden[[2]]) - 2*hyper.a^2/pi*s[X.dim+2]^2 + 1
+  grad_B[[1]] <- crossprod(t(s[1:(n.var+1)]*t(Z[[1]])),TT[[1]])-crossprod(t(s[1:(n.var+1)]*t(Z[[1]])),TT[[2]])-B[[1]]
+  grad_B[[2]] <- crossprod(s[n.var+2]*Z[[2]],TT[[3]])-crossprod(s[n.var+2]*Z[[2]],TT[[4]])-B[[2]]
+  grad_logs[1:(n.var+1)] <- diag(tcrossprod(crossprod(Z[[1]],TT[[1]]),W[[1]]))-diag(tcrossprod(crossprod(Z[[1]],TT[[2]]),W[[1]])) - 2*hyper.a^2/pi*s[1:(n.var+1)]^2 + 1
+  grad_logs[n.var+2] <- sum(TT[[3]]*hidden[[2]])- sum(TT[[4]]*hidden[[2]]) - 2*hyper.a^2/pi*s[n.var+2]^2 + 1
   grad_theta <- c(unlist(grad_B),grad_logs)
   return(grad_theta)
-}
-
-quinn_pred <- function(X,dz=0.01,param,tau)
-{
-  test.X <- X
-  tau.grid <- tau
-  z.grid <- seq(0,1,dz)
-  X.shape <- dim(test.X)
-  if(is.null(X.shape))
-  {
-    X.shape <- c(length(test.X),1)
-    test.X <- matrix(test.X,ncol=1)
-  }
-  
-  q_est <- matrix(0,nrow=length(tau.grid),ncol=X.shape[1])
-  
-  for(i in 1:X.shape[1])
-  {
-    cdf_est <- .pred.cdf(test.X[rep(i,length(z.grid)),],z.grid,param = param)
-    q_est[,i] <- approx(cdf_est,z.grid,xout = tau.grid)$y
-  }
-  return(q_est)
-}
-
-
-.pred.cdf = function(test.X,z.grid,param)
-{
-  invisible(list2env(as.list(quinn.env),environment()))
-  spf <- predict(isp,newx = z.grid)
-  cdf <- numeric(length(z.grid))
-  for(idx in 1:nrow(param))
-  {
-    theta <- param[idx,]
-    W <- B <- vector("list",2)
-    B[[1]] <- matrix(theta[1:((X.dim+1)*n.hidden)],nrow=X.dim+1,ncol=n.hidden)
-    B[[2]] <- matrix(theta[((X.dim+1)*n.hidden+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
-    logs <- theta[((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+1):((X.dim+1)*n.hidden+(n.hidden+1)*n.knots+X.dim+2)]
-    s <- exp(logs)
-    W[[1]] <- s[1:(X.dim+1)]*B[[1]]
-    W[[2]] <- s[X.dim+2]*B[[2]]
-    enn <- exp(.nn(test.X,W,.tanh))
-    cdf <- cdf + 1/nrow(param)*rowSums(spf*enn)/rowSums(enn)
-  }
-  cdf
 }
