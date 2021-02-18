@@ -240,6 +240,11 @@ quinn_pred <- function(pred.model,newX,tau)
   post.samp <- pred.model$samp
   if(is.null(n.z)) n.z <- 101
   nsamp <- nrow(post.samp)
+  if(is.null(nsamp))
+  {
+    nsamp <- 1
+    dim(post.samp) <- c(1,length(post.samp))
+  } 
   X.shape <- dim(newX)
   if(is.null(X.shape)) dim(newX) <- X.shape <- c(length(newX),1)
   z.grid <- seq(0,1,length.out = n.z)
