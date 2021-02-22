@@ -7,7 +7,7 @@ order interaction effects of QUINN. We applied QUINN to analyze tropical cyclone
 
 ## Dependencies
 
-Please make sure you have these packages installed: **splines2**,**pracma**,**rmutil**,**fdrtool**,**loo**,**rlang**,**yaImpute**,**abind**.
+Please make sure you have these packages installed: **splines2**, **pracma**, **rmutil**, **fdrtool**, **loo**, **rlang**, **yaImpute**, **abind**.
 
 ## Usage 
 
