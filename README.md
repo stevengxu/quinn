@@ -24,7 +24,7 @@ The **example_1d.R** and **example_2d.R** provide two examples, one univariate a
 
 - Data folder
 
-Example datasets to which QUINN can be applied. The folder currenly contains **hurricane.csv**, which is the tropical cyclone intensity data analyzed by Elsner et. al [[3]](#3).
+Example datasets to which QUINN can be applied. The folder currenly contains **hurricane.csv**, which is the tropical cyclone intensity data analyzed by Elsner et. al [[3]](#3); and **birthweight.csv**, which are 5000 random entries from the 2019 Natality Data Set of the United States [[4]](#4).
 
 ## References
 
@@ -36,3 +36,6 @@ Monnahan, C.C. and Kristensen, K., 2018. No-U-turn sampling for fast Bayesian in
 
 <a id="3">[3]</a> 
 Elsner, J.B., Kossin, J.P. and Jagger, T.H., 2008. The increasing intensity of the strongest tropical cyclones. Nature, 455(7209), pp.92-95.
+
+<a id="4">[4]</a> 
+https://www.cdc.gov/nchs/data_access/vitalstatsonline.htm#Tools
