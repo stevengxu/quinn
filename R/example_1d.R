@@ -54,6 +54,6 @@ qf.post.df <- as.data.frame(cbind(rep(tau,length(post_id)),c(t(qf.post))))
 qf.post.df$V3 <- rep(paste0("id.",1:length(post_id)),each=length(tau))
 colnames(qf.post.df) <- c("tau","qf","id")
 
-ggplot()+geom_line(data = qf.post.df, aes(tau,qf,group=id),alpha=0.1)+theme_bw()+
-  labs(x=TeX("$\\tau$"),y=TeX("$Q(\\tau |X=0.8)$"),title = TeX("Posterior distribution of $Q(\\tau |X=0.8),\\tau\\in\\[0.05,0.95\\]$"))+
-  theme(text = element_text(size = 18),axis.text.y = element_text(size = 18),axis.text.x = element_text(size = 18))
+ggplot()+geom_line(data = qf.post.df, aes(tau,qf,group=id,color=id),alpha=0.05)+theme_bw()+
+  labs(x=TeX("$\\tau$"),y="",title = TeX("Posterior distribution of $Q(\\tau |Year=2001),\\tau\\in\\[0.05,0.95\\]$"))+
+  theme(text = element_text(size = 18),axis.text.y = element_text(size = 18),axis.text.x = element_text(size = 18))+guides(color=FALSE)
