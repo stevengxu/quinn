@@ -24,8 +24,10 @@ train.model <- list(n.hidden=5,n.knots=9,n.var=1)
 iter=2000
 warmup=500
 
+
 #Run MCMC
 mcmc <- quinn_samp(X=X,z=z,train.model=train.model,iter=iter,warmup=warmup)
+
 
 #Extract posterior samples, here they are the last 1000 iterations
 post_id <- seq(iter-999,iter)
@@ -57,14 +59,14 @@ qplot.df = gather(qplot.df,tau,y,tau.1:tau.19,factor_key=TRUE)
 
 #Plot the data overlaid with simultaneous estimate of quantile curves
 ggplot()+geom_point(data = data, aes(Year,WmaxST))+labs(x = "Year", y="WmaxST")+
-  geom_line(data = qplot.df, aes(X,y,col = tau))+scale_color_discrete(name = expression(tau), labels = seq(0.05,0.95,0.05))
+  geom_line(data = qplot.df, aes(X,y,col = tau))+scale_color_discrete(name = expression(tau), labels = seq(0.05,0.99,0.05))
 
 #Obtain posterior samples of QF for a specific covariate value
-qf.post <- matrix(nrow=length(post_id),ncol=length(tau))
+qf.post <- matrix(nrow=length(post_id),ncol=length(X.grid))
 for(i in 1:length(post_id))
 {
   pred.model_i <- c(train.model,list(n.z=101,samp=post[i,]))
-  qf.post[i,] <- quinn_pred(pred.model=pred.model_i,newX=0.8,tau=tau)
+  qf.post[i,] <- quinn_pred(pred.model=pred.model_i,newX=X.grid,tau=0.75)
 }
 qf.post <- qf.post * (max_y-min_y) + min_y
 qf.post.df <- as.data.frame(cbind(rep(tau,length(post_id)),c(t(qf.post))))
@@ -72,6 +74,7 @@ qf.post.df$V3 <- rep(paste0("id.",1:length(post_id)),each=length(tau))
 colnames(qf.post.df) <- c("tau","qf","id")
 
 #Plot the posterior samples of QF for a specific covariate value
-ggplot()+geom_line(data = qf.post.df, aes(tau,qf,group=id,color=id),alpha=0.05)+theme_bw()+
+ggplot()+geom_line(data = qf.post.df, aes(tau,qf,group=id),alpha=0.1)+theme_bw()+
   labs(x=TeX("$\\tau$"),y="",title = TeX("Posterior distribution of $Q(\\tau |Year=2001),\\tau\\in\\[0.05,0.95\\]$"))+
   theme(text = element_text(size = 18),axis.text.y = element_text(size = 18),axis.text.x = element_text(size = 18))+guides(color=FALSE)
+

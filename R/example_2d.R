@@ -20,18 +20,18 @@ z <- (y-min_y)/(max_y-min_y)
 
 #Create model input for training by specifying number of hidden neurons, 
 #number of spline knots, and dimension of the covariate vector
-train.model <- list(n.hidden=8,n.knots=11,n.var=2)
+train.model <- list(n.hidden=15,n.knots=11,n.var=2)
 
 #Specifying number of iterations and warmups, optionally can specify thinning
-iter=2000
-warmup=500
+iter=3000
+warmup=1000
+thin = 10
 
 #Run MCMC
-mcmc <- quinn_samp(X=X,z=z,train.model=train.model,iter=iter,warmup=warmup)
+mcmc <- quinn_samp(X=X,z=z,train.model=train.model,iter=iter,warmup=warmup,thin=thin)
 
-#Extract posterior samples, here they are the last 1000 iterations
-post_id <- seq(iter-999,iter)
-post <- mcmc$par[post_id,]
+#Extract posterior samples
+post <- mcmc$par
 
 #Create model input for fitting/prediction
 #n.z is the grid size for interpolating the CDF and QF
@@ -41,8 +41,8 @@ pred.model <- c(train.model,list(n.z=101,samp=post))
 tau <- seq(0.05,0.95,0.05)
 
 #X values at which predictions are sought
-X1.grid <- seq(0,1,length.out = 51)
-X2.grid <- seq(0,1,length.out = 51)
+X1.grid <- seq(0,1,length.out = 21)
+X2.grid <- seq(0,1,length.out = 21)
 X.grid <- as.matrix(expand.grid(X1.grid,X2.grid))
 
 #Predict the QFs
@@ -55,7 +55,7 @@ q.pred <- q.pred*(max_y-min_y)+min_y
 Q1 <- q.pred[1,]
 Q2 <- q.pred[10,]
 Q3 <- q.pred[19,]
-dim(Q1) <- dim(Q2) <- dim(Q3) <- c(51,51)
+dim(Q1) <- dim(Q2) <- dim(Q3) <- c(21,21)
 
 fig <- plot_ly(showscale = FALSE)
 fig <- fig %>% add_surface(x = X2.grid, y = X1.grid, z = Q1) %>% 
