@@ -30,7 +30,7 @@ mcmc <- quinn_samp(X=X,z=z,train.model=train.model,iter=iter,warmup=warmup)
 
 
 #Extract posterior samples, here they are the last 1000 iterations
-post_id <- seq(iter-999,iter)
+post_id <- seq(iter-999,iter)-warmup
 post <- mcmc$par[post_id,]
 
 #Create model input for fitting/prediction
