@@ -29,14 +29,14 @@
     theta <- theta+(v*eps)*r
     r <- r+(v*eps/2)*gr(theta)
     ## verify valid trajectory. Divergences occur if H is NaN, or drifts
-    ## too from from true H.
+    ## too far from true H.
     H <- .calculate.H(theta=theta, r=r, fn=fn)
     n <- logu <= H
     s <- logu < delta.max + H
     if(!is.finite(H) | s == 0){
       info$divergent <- 1; s <- 0
     }
-    ## Acceptance ratio in log space: (Hnew-Hold)
+    ## Acceptance ratio in log space: (H_new-H_old)
     logalpha <- H-H0
     alpha <- min(exp(logalpha),1)
     info$n.calls <- info$n.calls + 1

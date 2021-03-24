@@ -26,7 +26,7 @@ warmup=500
 
 
 #Run MCMC
-mcmc <- quinn_samp(X=X,z=z,train.model=train.model,iter=iter,warmup=warmup)
+mcmc <- quinn_samp(X=X,z=z,train.model=train.model,iter=iter,warmup=warmup,control=list(adapt_delta=0.999, max_td=6, metric="dense"))
 
 
 #Extract posterior samples, here they are the last 1000 iterations
@@ -62,11 +62,11 @@ ggplot()+geom_point(data = data, aes(Year,WmaxST))+labs(x = "Year", y="WmaxST")+
   geom_line(data = qplot.df, aes(X,y,col = tau))+scale_color_discrete(name = expression(tau), labels = seq(0.05,0.99,0.05))
 
 #Obtain posterior samples of QF for a specific covariate value
-qf.post <- matrix(nrow=length(post_id),ncol=length(X.grid))
+qf.post <- matrix(nrow=length(post_id),ncol=length(tau))
 for(i in 1:length(post_id))
 {
   pred.model_i <- c(train.model,list(n.z=101,samp=post[i,]))
-  qf.post[i,] <- quinn_pred(pred.model=pred.model_i,newX=X.grid,tau=0.75)
+  qf.post[i,] <- quinn_pred(pred.model=pred.model_i,newX=0.8,tau=tau)
 }
 qf.post <- qf.post * (max_y-min_y) + min_y
 qf.post.df <- as.data.frame(cbind(rep(tau,length(post_id)),c(t(qf.post))))

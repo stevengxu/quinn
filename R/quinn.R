@@ -7,35 +7,44 @@ library(loo)
 library(rlang)
 source("utils.R")
 
-quinn_samp <- function(X,z,train.model,iter,warmup=floor(iter/2),chain=1,thin=1,hyper.a=30,control=list(adapt_delta=0.999, max_td=6),seed=1)
+quinn_samp <- function(X,
+                       z,
+                       train.model,
+                       iter,
+                       warmup=floor(iter/2),
+                       chain=1,
+                       thin=1,
+                       hyper.a=30,
+                       control=list(adapt_delta=0.999, max_td=6, metric="diag"),
+                       seed=1,
+                       diagnose=F)
 {
   data.X <- X
   data.z <- z
   n.hidden <- train.model$n.hidden
   n.knots <- train.model$n.knots
   n.var <- train.model$n.var
+  n.par <- (n.var+1)*n.hidden + (n.hidden+1)*n.knots + n.var+2
   hyper.a <- sqrt(pi/2)/hyper.a
   isp <- iSpline(seq(0,1,length.out = 101), knots = seq(0,1,length.out=n.knots)[-c(1,n.knots)], degree = 2, intercept = F)
   msp <- iSpline(seq(0,1,length.out = 101), knots = seq(0,1,length.out=n.knots)[-c(1,n.knots)], degree = 2, derivs = 1, intercept = F)
-  quinn.env <<- new_environment(list(data.X=data.X,data.z=data.z,n.hidden=n.hidden,n.knots=n.knots,n.var=n.var,hyper.a=hyper.a,isp=isp,msp=msp))
   
-  #B <- vector("list",2)
-  #B[[1]] <- rep(0,(n.var+1)*n.hidden)
-  #B[[2]] <- rep(0,(n.hidden+1)*n.knots)
-  B1 <- rep(0,(n.var+1)*n.hidden)
-  B2 <- rep(0,(n.hidden+1)*n.knots)
-  logs <- rep(0,n.var+2)
-  init <- c(B1,B2,logs)
+  ##A container of information passed to parent scope
+  quinn.env <<- new_environment(list(data.X=data.X,data.z=data.z,n.hidden=n.hidden,
+                                     n.knots=n.knots,n.var=n.var,n.par=n.par,
+                                     hyper.a=hyper.a,isp=isp,msp=msp))
+  
+  nz <- length(data.z)
+  init <- rep(0,n.par)
   fn <- .loglik
   gr <- .loglik.grad
   
   if(!is.null(seed)) set.seed(seed)
   control <- .update_control(control)
   eps <- control$stepsize
-  npar <- length(init)
-  nz <- length(data.z)
   M <- control$metric
-  if(is.null(M)) M <- rep(1, len=npar)
+  ## Initialized as unit matrix
+  if(is_string(M)) M <- rep(1, len=n.par)
   if( !(is.vector(M) | is.matrix(M)) )
     stop("Metric must be vector or matrix")
   max_td <- control$max_treedepth
@@ -61,7 +70,7 @@ quinn_samp <- function(X,z,train.model,iter,warmup=floor(iter/2),chain=1,thin=1,
                                                           "divergent__", "energy__")))
   lp__matrix <- matrix(0, nrow=iter, ncol=nz)
   ## This holds the rotated but untransformed variables ("y" space)
-  theta.out <- matrix(NA, nrow=iter, ncol=npar)
+  theta.out <- matrix(NA, nrow=iter, ncol=n.par)
   ## how many steps were taken at each iteration, useful for tuning
   j.results <- rep(NA, len=iter)
   useDA <- is.null(eps)               # whether to use DA algorithm
@@ -85,16 +94,16 @@ quinn_samp <- function(X,z,train.model,iter,warmup=floor(iter/2),chain=1,thin=1,
     theta.minus <- theta.plus <- theta.cur
     theta.out[m,] <-
       if(is.vector(M)) chd*theta.cur else t(chd %*% theta.cur)
-    r.cur <- r.plus <- r.minus <-  rnorm(npar,0,1)
+    r.cur <- r.plus <- r.minus <-  rnorm(n.par,0,1)
     H0 <- .calculate.H(theta=theta.cur, r=r.cur, fn=fn2)
     
-    ## Draw a slice variable u in log space
-    logu <-
-      log(runif(1)) + .calculate.H(theta=theta.cur,r=r.cur, fn=fn2)
+    ## Draw a slice variable u~U(0,exp(H0)) in log space
+    logu <- log(runif(1)) + H0
     j <- 0; n <- 1; s <- 1; divergent <- 0
     ## Track steps and divergences; updated inside .buildtree
     info <- as.environment(list(n.calls=0, divergent=0))
     while(s==1) {
+      #Uniformly decides direction
       v <- sample(x=c(1,-1), size=1)
       if(v==1){
         ## move in right direction
@@ -162,15 +171,16 @@ quinn_samp <- function(X,z,train.model,iter,warmup=floor(iter/2),chain=1,thin=1,
     ## do this coversion in the calcs below.
     if(adapt_mass & .slow_phase(m, warmup, w1, w3)){
       ## If in slow phase, update running estimate of variances
-      ## The Welford running variance calculation, see
-      ## https://www.johndcook.com/blog/standard_deviation/
-      if(m== w1){
+      if(m==w1){
         ## Initialize algorithm from end of first fast window
-        m1 <- theta.out[m,]; s1 <- rep(0, len=npar); k <- 1
+        m1 <- theta.out[m,]
+        s1 <- 
+          if(control$metric=="diag") rep(0, len=n.par) else diag(n.par)
+        k <- 1
       } else if(m==anw){
         ## If at end of adaptation window, update the mass matrix to the estimated
         ## variances
-        M <- as.numeric(s1/(k-1)) # estimated variance
+        M <- s1/(k-1) # estimated variance
         ## Update density and gradient functions for new mass matrix
         if(any(!is.finite(M))){
           warning("Non-finite estimates in mass matrix adaptation -- reverting to unit")
@@ -180,7 +190,9 @@ quinn_samp <- function(X,z,train.model,iter,warmup=floor(iter/2),chain=1,thin=1,
         fn2 <- rotation$fn2; gr2 <- rotation$gr2; chd <- rotation$chd;
         theta.cur <- rotation$x.cur
         ## Reset the running variance calculation
-        k <- 1; m1 <- theta.out[m,]; s1 <- rep(0, len=npar)
+        k <- 1; m1 <- theta.out[m,]
+        s1 <- 
+          if(control$metric=="diag") rep(0, len=n.par) else diag(n.par)
         ## Calculate the next end window. If this overlaps into the final fast
         ## period, it will be stretched to that point (warmup-w3)
         aws <- 2*aws
@@ -188,15 +200,18 @@ quinn_samp <- function(X,z,train.model,iter,warmup=floor(iter/2),chain=1,thin=1,
         ## Find new reasonable eps since it can change dramatically when M
         ## updates
         eps <- .find.epsilon(theta=theta.cur, fn=fn2, gr=gr2, eps=.01, verbose=FALSE)
-        if(!is.null(control$verbose))
-          print(paste(m, ": new range(M) is:",
-                      round(min(M),5), round(max(M),5), ", pars",
-                      which.min(M), which.max(M), ", eps=", eps))
+        #if(!is.null(control$verbose))
+        #  print(paste(m, ": new range(M) is:",
+        #              round(min(M),5), round(max(M),5), ", pars",
+        #              which.min(M), which.max(M), ", eps=", eps))
       } else {
+        ## The Welford online variance calculation, see
+        ## https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
         k <- k+1; m0 <- m1; s0 <- s1
         ## Update M and S
-        m1 <- m0+(theta.out[m,]-m0)/k
-        s1 <- s0+(theta.out[m,]-m0)*(theta.out[m,]-m1)
+        m1 <- m0 + (theta.out[m,]-m0)/k
+        s1 <- s0 + 
+          if(control$metric=="diag") (theta.out[m,]-m1)*(theta.out[m,]-m0) else tcrossprod(theta.out[m,]-m1,theta.out[m,]-m0)
       }
     }
     ## End of mass matrix adaptation
@@ -229,11 +244,11 @@ quinn_samp <- function(X,z,train.model,iter,warmup=floor(iter/2),chain=1,thin=1,
                            "; after ", warmup, " warmup iterations"))
   time.total <- difftime(Sys.time(), time.start, units='secs')
   .print.mcmc.timing(time.warmup=time.warmup, time.total=time.total)
-  return(list(par=theta.out, lp__=lp__, waic=waic))
+  if(!diagnose) return(list(par=theta.out, lp__=lp__, waic=waic)) else return(list(par=theta.out, lp__=lp__, waic=waic, diagnose=sampler_params))
 }
 
 
-quinn_pred <- function(pred.model,newX,tau)
+quinn_pred <- function(pred.model,newX,tau,type="qf")
 {
   n.hidden <- pred.model$n.hidden
   n.knots <- pred.model$n.knots
@@ -250,29 +265,33 @@ quinn_pred <- function(pred.model,newX,tau)
   X.shape <- dim(newX)
   if(is.null(X.shape)) dim(newX) <- X.shape <- c(length(newX),1)
   z.grid <- seq(0,1,length.out = n.z)
-  isp <- iSpline(z.grid, knots = seq(0,1,length.out=n.knots)[-c(1,n.knots)], degree = 2, intercept = F)
-  isp <- isp[rep(1:nrow(isp),X.shape[1]),]
+  is_pdf <- type == "pdf"
+  pred.sp <- iSpline(z.grid, knots = seq(0,1,length.out=n.knots)[-c(1,n.knots)], degree = 2, intercept = F, derivs = is_pdf)
+  pred.sp <- pred.sp[rep(1:nrow(pred.sp),X.shape[1]),]
   newX <- newX[rep(1:X.shape[1],each = n.z),]
   if(X.shape[2]==1) dim(newX) <- c(length(newX),1)
-  cdf_est <- numeric(nrow(newX))
+  pred.df <- numeric(nrow(newX))
   for(i in 1:nsamp)
   {
     theta <- post.samp[i,]
-    B1 <- matrix(theta[1:((n.var+1)*n.hidden)],nrow=n.var+1,ncol=n.hidden)
-    B2 <- matrix(theta[((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
-    logs <- theta[((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2)]
-    W1 <- exp(logs[1:(n.var+1)])*B1
-    W2 <- exp(logs[n.var+2])*B2
-    enn <- exp(.nn(newX,W1,W2,.tanh))
-    cdf_est <- cdf_est + 1/nsamp*rowSums(isp*enn)/rowSums(enn)
+    loc.par <- .location.par(n.hidden,n.knots,n.var)
+    
+    B1 <- matrix(theta[loc.par$B1],nrow=n.var+1,ncol=n.hidden)
+    B2 <- matrix(theta[loc.par$B2],nrow=n.hidden+1,ncol=n.knots)
+    logs1 <- theta[loc.par$logs1]
+    logs2 <- theta[loc.par$logs2]
+    
+    enn <- exp(.nn(newX,exp(logs1)*B1,exp(logs2)*B2,.tanh))
+    pred.df <- pred.df + 1/nsamp*rowSums(pred.sp*enn)/rowSums(enn)
   }
-  dim(cdf_est) <- c(n.z,X.shape[1])
-  q_est <- matrix(nrow = X.shape[1], ncol = length(tau))
+  dim(pred.df) <- c(n.z,X.shape[1])
+  if(type!="qf") return(pred.df)
+  pred.qf <- matrix(nrow = X.shape[1], ncol = length(tau))
   for(i in 1:X.shape[1])
   {
-    q_est[i,] <- approx(cdf_est[,i],z.grid,xout = tau)$y 
+    pred.qf[i,] <- approx(pred.df[,i],z.grid,xout = tau)$y 
   }
-  return(q_est)
+  return(pred.qf)
 }
 
 ##Hyperbolic tanh with gradient
@@ -299,12 +318,15 @@ quinn_pred <- function(pred.model,newX,tau)
 .loglik <- function(theta)
 {
   invisible(list2env(as.list(quinn.env),environment()))
-  B1 <- matrix(theta[1:((n.var+1)*n.hidden)],nrow=n.var+1,ncol=n.hidden)
-  B2 <- matrix(theta[((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
-  logs <- theta[((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2)]
-  W1 <- exp(logs[1:(n.var+1)])*B1
-  W2 <- exp(logs[n.var+2])*B2
-  enn <- exp(.nn(data.X,W1,W2,.tanh))
+  loc.par <- .location.par(n.hidden,n.knots,n.var)
+  
+  B1 <- matrix(theta[loc.par$B1],nrow=n.var+1,ncol=n.hidden)
+  B2 <- matrix(theta[loc.par$B2],nrow=n.hidden+1,ncol=n.knots)
+  logs1 <- theta[loc.par$logs1]
+  logs2 <- theta[loc.par$logs2]
+  logs <- c(logs1,logs2)
+  
+  enn <- exp(.nn(data.X,exp(logs1)*B1,exp(logs2)*B2,.tanh))
   sp <- predict(msp,newx=data.z)
   loglik <- sum(log(rowSums(enn*sp)))-sum(log(rowSums(enn)))+sum(dnorm(B1,log=T))+
     sum(dnorm(B2,log=T))+sum(dhalfnorm(exp(logs),hyper.a,log=T))+sum(logs)
@@ -315,12 +337,14 @@ quinn_pred <- function(pred.model,newX,tau)
 .loglik.data <- function(theta)
 {
   invisible(list2env(as.list(quinn.env),environment()))
-  B1 <- matrix(theta[1:((n.var+1)*n.hidden)],nrow=n.var+1,ncol=n.hidden)
-  B2 <- matrix(theta[((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
-  logs <- theta[((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2)]
-  W1 <- exp(logs[1:(n.var+1)])*B1
-  W2 <- exp(logs[n.var+2])*B2
-  enn <- exp(.nn(data.X,W1,W2,.tanh))
+  loc.par <- .location.par(n.hidden,n.knots,n.var)
+  
+  B1 <- matrix(theta[loc.par$B1],nrow=n.var+1,ncol=n.hidden)
+  B2 <- matrix(theta[loc.par$B2],nrow=n.hidden+1,ncol=n.knots)
+  logs1 <- theta[loc.par$logs1]
+  logs2 <- theta[loc.par$logs2]
+  
+  enn <- exp(.nn(data.X,exp(logs1)*B1,exp(logs2)*B2,.tanh))
   sp <- predict(msp,newx=data.z)
   loglik_array <- log(rowSums(enn*sp))-log(rowSums(enn))
   return(loglik_array)
@@ -330,27 +354,50 @@ quinn_pred <- function(pred.model,newX,tau)
 .loglik.grad = function(theta)
 {
   invisible(list2env(as.list(quinn.env),environment()))
-  grad_logs <- numeric(n.var+2)
-  B1 <- matrix(theta[1:((n.var+1)*n.hidden)],nrow=n.var+1,ncol=n.hidden)
-  B2 <- matrix(theta[((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)],nrow=n.hidden+1,ncol=n.knots)
-  logs <- theta[((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2)]
-  W1 <- exp(logs[1:(n.var+1)])*B1
-  W2 <- exp(logs[n.var+2])*B2
-  hidden1 <- .fwd(data.X,W1)
-  hidden2 <- .fwd(.tanh(hidden1),W2)
+  grad_theta <- numeric(n.par)
+  
+  loc.par <- .location.par(n.hidden,n.knots,n.var)
+  
+  B1 <- matrix(theta[loc.par$B1],nrow=n.var+1,ncol=n.hidden)
+  B2 <- matrix(theta[loc.par$B2],nrow=n.hidden+1,ncol=n.knots)
+  logs1 <- theta[loc.par$logs1]
+  logs2 <- theta[loc.par$logs2]
+  
+  hidden1 <- .fwd(data.X,exp(logs1)*B1)
+  hidden2 <- .fwd(.tanh(hidden1),exp(logs2)*B2)
   Z1 <- cbind(1,data.X)
   Z2 <- cbind(1,.tanh(hidden1))
   sp <- predict(msp,newx = data.z)
   enn <- exp(hidden2)
   snn <- sp*enn
-  TT1 <- (tcrossprod(snn,W2[-1,])*.tanh(hidden1,T))/rowSums(snn)
-  TT2 <- (tcrossprod(enn,W2[-1,])*.tanh(hidden1,T))/rowSums(enn)
+  
+  TT1 <- (tcrossprod(snn,exp(logs2)*B2[-1,])*.tanh(hidden1,T))/rowSums(snn)
+  TT2 <- (tcrossprod(enn,exp(logs2)*B2[-1,])*.tanh(hidden1,T))/rowSums(enn)
   TT3 <- snn/rowSums(snn)
   TT4 <- enn/rowSums(enn)
-  grad_B1 <- crossprod(t(exp(logs[1:(n.var+1)])*t(Z1)),TT1)-crossprod(t(exp(logs[1:(n.var+1)])*t(Z1)),TT2)-B1
-  grad_B2 <- crossprod(exp(logs[n.var+2])*Z2,TT3)-crossprod(exp(logs[n.var+2])*Z2,TT4)-B2
-  grad_logs[1:(n.var+1)] <- diag(tcrossprod(crossprod(Z1,TT1),W1))-diag(tcrossprod(crossprod(Z1,TT2),W1)) - 2*hyper.a^2/pi*exp(logs[1:(n.var+1)])^2 + 1
-  grad_logs[n.var+2] <- sum(TT3*hidden2)- sum(TT4*hidden2) - 2*hyper.a^2/pi*exp(logs[n.var+2])^2 + 1
-  grad_theta <- c(grad_B1,grad_B2,grad_logs)
+  
+  grad_theta[loc.par$B1] <- crossprod(t(exp(logs1)*t(Z1)),TT1) - 
+    crossprod(t(exp(logs1)*t(Z1)),TT2) - B1
+  
+  grad_theta[loc.par$B2] <- crossprod(exp(logs2)*Z2,TT3) - 
+    crossprod(exp(logs2)*Z2,TT4) - B2
+  
+  grad_theta[loc.par$logs1] <- diag(tcrossprod(crossprod(Z1,TT1),exp(logs1)*B1)) - 
+    diag(tcrossprod(crossprod(Z1,TT2),exp(logs1)*B1)) - 
+    2*hyper.a^2/pi*exp(logs1)^2 + 1
+  
+  grad_theta[loc.par$logs2] <- sum(TT3*hidden2)- sum(TT4*hidden2) - 
+    2*hyper.a^2/pi*exp(logs2)^2 + 1
+  
   return(grad_theta)
+}
+
+##Return location of parameters in the sample
+.location.par <- function(n.hidden,n.knots,n.var)
+{
+  B1 <- 1:((n.var+1)*n.hidden)
+  B2 <- ((n.var+1)*n.hidden+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots)
+  logs1 <- ((n.var+1)*n.hidden+(n.hidden+1)*n.knots+1):((n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+1)
+  logs2 <- (n.var+1)*n.hidden+(n.hidden+1)*n.knots+n.var+2
+  return(list(B1=B1,B2=B2,logs1=logs1,logs2=logs2))
 }
