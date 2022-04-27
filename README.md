@@ -5,6 +5,10 @@ We assign prior to weight parameters, so that uncertainty of the model can be an
 considered a "black-box" model, some interpretability can be obtained by estimating its quantile marginal effects using model-agnostic tools. We extended the recently proposed accumulative local effects plot (**ALEplot**) [[1]](#1) to quantile regression and estimated main and second-
 order interaction effects of QUINN. We applied QUINN to analyze tropical cyclone intensity and U.S. birthweight data.
 
+## R package
+
+An R package implementing the proposed method is available at https://github.com/stevengxu/SPQR.
+
 ## Publication
 
 Our paper is available on arXiv [https://arxiv.org/abs/2102.11309].
